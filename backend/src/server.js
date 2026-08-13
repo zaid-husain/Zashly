@@ -105,6 +105,14 @@ app.use(
   })
 );
 
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get("/healthcheck", async (_req, res) => {
   const dbStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   const memory = process.memoryUsage();
