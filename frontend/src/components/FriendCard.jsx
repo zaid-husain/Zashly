@@ -19,6 +19,7 @@ const FriendCard = ({ friend }) => {
     onSuccess: () => {
       toast.success(`Removed ${friend.fullName} from friends`);
       queryClient.invalidateQueries({ queryKey: ["friends"] });
+      queryClient.invalidateQueries({ queryKey: ["authUser"] });
       setConfirmAction(null);
     },
     onError: (error) => {
@@ -32,6 +33,8 @@ const FriendCard = ({ friend }) => {
     onSuccess: () => {
       toast.success(`Blocked ${friend.fullName}`);
       queryClient.invalidateQueries({ queryKey: ["friends"] });
+      queryClient.invalidateQueries({ queryKey: ["blockedUsers"] });
+      queryClient.invalidateQueries({ queryKey: ["authUser"] });
       setConfirmAction(null);
     },
     onError: (error) => {
@@ -62,7 +65,7 @@ const FriendCard = ({ friend }) => {
       title: "Block User",
       description: (
         <>
-          Are you sure you want to block <span className="font-semibold">{friend.fullName}</span>? They will be removed from your friends list and won't be able to message you.
+          Are you sure you want to block <span className="font-semibold">{friend.fullName}</span>? They will be moved to your Blocked Users list and won't be able to message or call you. Unblocking them will automatically restore your friendship.
         </>
       ),
       confirmLabel: "Block",

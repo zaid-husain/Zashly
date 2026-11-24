@@ -1,46 +1,74 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build and generated output
+dist/
+dist-ssr/
+build/
+out/
+.next/
+.vite/
+coverage/
+frontend/dist/
+backend/dist/
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+backend/logs/
 
-node_modules
-dist
-dist-ssr
+# Environment files and local configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 *.local
 
-# Editor directories and files
+# Secrets and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
+secrets/
+credentials/
+.credentials/
+.npmrc
+.yarnrc
+.yarnrc.yml
+
+# Editor and OS files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-backend/.env
-frontend/.env
-frontend/node_modules/
-backend/node_modules/
-
-netlify.toml
-
-# Security / runtime
-logs/
-*.pem
-.env
-.env.*
-!.env.example
-backend/.env
-frontend/.env
+# Uploaded and runtime files
 backend/uploads/*
 !backend/uploads/.gitkeep
+.cache/
+.tmp/
+tmp/
+temp/
 
-.env
-.env.local
-.env.production
+# Deployment/local tooling
+.netlify/
+.vercel/

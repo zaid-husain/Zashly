@@ -91,8 +91,13 @@ export async function removeFriend(userId) {
   return response.data;
 }
 
-export async function getStreamToken() {
-  const response = await axiosInstance.get("/chat/token");
+export async function getStreamToken(targetUserId) {
+  const isStringId =
+    typeof targetUserId === "string" &&
+    targetUserId.trim() &&
+    targetUserId !== "[object Object]";
+  const params = isStringId ? { targetUserId: targetUserId.trim() } : {};
+  const response = await axiosInstance.get("/chat/token", { params });
   return response.data;
 }
 

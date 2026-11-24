@@ -6,7 +6,7 @@ export default function FounderCard() {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <section className="py-24 bg-base-200/50">
+    <section className="py-14 sm:py-16 lg:py-20 bg-base-200/50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         
         <motion.div 

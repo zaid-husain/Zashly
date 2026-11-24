@@ -13,7 +13,7 @@ export default function RecentChats() {
   const navigate = useNavigate();
 
   const { data: authUser } = useQuery({ queryKey: ["authUser"], queryFn: getAuthUser });
-  const { data: tokenData } = useQuery({ queryKey: ["streamToken"], queryFn: getStreamToken, enabled: !!authUser });
+  const { data: tokenData } = useQuery({ queryKey: ["streamToken"], queryFn: () => getStreamToken(), enabled: !!authUser });
   const { data: friends = [] } = useQuery({ queryKey: ["friends"], queryFn: getUserFriends });
 
   const auth = useMemo(() => (authUser && authUser.user ? authUser.user : authUser), [authUser]);
@@ -150,6 +150,11 @@ export default function RecentChats() {
     };
   }, [auth, tokenData, refreshUnreadCounts]);
 
+  const blockedSet = useMemo(() => {
+    const list = auth?.blockedUsers || [];
+    return new Set(list.map((u) => String(u?._id || u)));
+  }, [auth?.blockedUsers]);
+
   const items = useMemo(() => {
     if (channels?.length) {
       return channels
@@ -162,6 +167,9 @@ export default function RecentChats() {
           const otherMember = members.find((m) => (m.user?.id || m.user_id) !== meId);
           if (!otherMember) return null;
           const other = otherMember.user || { id: otherMember.user_id, name: otherMember.user_id, image: "" };
+          const otherId = String(other.id || otherMember.user_id || "");
+          if (blockedSet.has(otherId)) return null;
+
           const lastMsg = (ch.state.messages || []).slice(-1)[0];
           const preview = lastMsg?.text || (lastMsg?.attachments?.length ? "Attachment" : "");
           const ts = ch.state.last_message_at || ch.state.updated_at || lastMsg?.created_at;
@@ -178,15 +186,17 @@ export default function RecentChats() {
         })
         .filter(Boolean);
     }
-    return (friends || []).map((f) => ({
-      id: f._id || f.id,
-      name: f.fullName || f.username,
-      avatar: f.profilePic || "",
-      lastText: "",
-      lastTime: null,
-      unread: 0,
-    }));
-  }, [channels, auth, friends, currentUserId, unreadCounts]);
+    return (friends || [])
+      .filter((f) => !blockedSet.has(String(f._id || f.id)))
+      .map((f) => ({
+        id: f._id || f.id,
+        name: f.fullName || f.username,
+        avatar: f.profilePic || "",
+        lastText: "",
+        lastTime: null,
+        unread: 0,
+      }));
+  }, [channels, auth, friends, currentUserId, unreadCounts, blockedSet]);
 
   const compact = auth?.appSettings?.general?.compactChatList ?? false;
 

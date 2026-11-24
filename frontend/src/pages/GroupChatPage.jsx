@@ -194,9 +194,14 @@ const GroupChatPage = () => {
 
 
   // 2. Fetch Stream Token
-  const { data: tokenData } = useQuery({
+  const {
+    data: tokenData,
+    isLoading: tokenLoading,
+    isError: tokenError,
+    error: tokenErrorObj,
+  } = useQuery({
     queryKey: ["streamToken"],
-    queryFn: getStreamToken,
+    queryFn: () => getStreamToken(),
     enabled: !!authUser,
   });
 
@@ -208,18 +213,36 @@ const GroupChatPage = () => {
 
   // 3. Initialize Stream Chat
   useEffect(() => {
-    const initChat = async () => {
-      // Wait for everything to be ready before connecting
-      if (!tokenData?.token || !authUser || !group || !groupId) return;
+    let isCancelled = false;
 
+    const initChat = async () => {
+      if (!authUser || !groupId) {
+        setLoading(false);
+        return;
+      }
+      if (tokenError) {
+        setLoading(false);
+        return;
+      }
+      if (!tokenData?.token || !group) {
+        if (!tokenLoading && !loadingGroup) {
+          setLoading(false);
+        }
+        return;
+      }
+
+      setLoading(true);
       try {
         const desiredId = String(authUser._id);
         
         const client = await connectStreamUser(authUser, tokenData.token);
-        if (!client) return;
+        if (!client) {
+          if (!isCancelled) setLoading(false);
+          return;
+        }
 
         // Map local members to Stream IDs
-        const memberIds = group.members.map(m => String(m._id));
+        const memberIds = (group.members || []).map((m) => String(m?._id || m));
         
         // Ensure current user is in the member list
         if (!memberIds.includes(desiredId)) {
@@ -235,20 +258,26 @@ const GroupChatPage = () => {
         const shouldMarkRead = authUser?.privacySettings?.readReceipts !== false;
         await currChannel.watch({ mark_read: shouldMarkRead });
 
+        if (isCancelled) return;
+
         setChatClient(client);
         setChannel(currChannel);
       } catch (error) {
         console.error("Error initializing stream chat:", error);
         toast.error("Could not connect to group chat. Please try again.");
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
 
     initChat();
 
-    // Cleanup isn't strictly necessary to disconnect user here as ChatPage might be used next
-  }, [tokenData, authUser, group, groupId]);
+    return () => {
+      isCancelled = true;
+    };
+  }, [tokenData, tokenLoading, tokenError, authUser, group, groupId, loadingGroup]);
 
   // Handle group updates from info panel
   // Updates React Query cache → CustomGroupHeader re-renders instantly
@@ -318,8 +347,40 @@ const GroupChatPage = () => {
   };
 
 
-  if (loadingGroup || loading || !chatClient || !channel) {
+  if (loadingGroup || (loading && (tokenLoading || !tokenError))) {
     return <ChatLoader />;
+  }
+
+  if (tokenError || !chatClient || !channel) {
+    const errorMsg =
+      tokenErrorObj?.response?.data?.message ||
+      tokenErrorObj?.message ||
+      (!STREAM_API_KEY
+        ? "Stream API key missing in environment configuration."
+        : "Unable to connect to group chat. Please try again.");
+
+    return (
+      <div className="h-full gc-outer-bg flex items-center justify-center p-4">
+        <div className="text-center max-w-sm">
+          <p className="text-lg font-semibold mb-2">Group Chat Connection Error</p>
+          <p className="text-sm opacity-70 mb-4">{errorMsg}</p>
+          <div className="flex justify-center gap-2">
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                setLoading(true);
+                queryClient.invalidateQueries({ queryKey: ["streamToken"] });
+              }}
+            >
+              Retry
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate("/app")}>
+              Go Home
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!group) {

@@ -7,6 +7,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer } from "http";
+import mongoose from "mongoose";
 
 import { validateEnv } from "./config/security/env.config.js";
 import { getCorsOptions } from "./config/security/cors.config.js";
@@ -49,6 +50,7 @@ import publicRoutes from "./routes/public.route.js";
 import { connectDB } from "./lib/db.js";
 import { initSocket } from "./lib/socket.js";
 import { seedReservedUsernames } from "./services/username.service.js";
+import { syncAllUsersToStream } from "./lib/stream.js";
 
 if (env.TRUST_PROXY === "true") {
   // Required for rate limiting + secure cookies behind NGINX / Cloudflare
@@ -149,6 +151,7 @@ async function start() {
   try {
     await connectDB();
     await seedReservedUsernames();
+    await syncAllUsersToStream();
     await new Promise((resolve, reject) => {
       server.once("error", reject);
       server.listen(PORT, () => {

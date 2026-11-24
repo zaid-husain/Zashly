@@ -3,7 +3,7 @@ import { Video, Mic, ScreenShare, Zap } from "lucide-react";
 
 export default function VoiceVideoSection() {
   return (
-    <section className="py-24 relative overflow-hidden bg-gradient-to-b from-base-100 to-base-200">
+    <section className="py-14 sm:py-16 lg:py-20 relative overflow-hidden bg-gradient-to-b from-base-100 to-base-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         
         <div className="grid lg:grid-cols-2 gap-16 items-center">

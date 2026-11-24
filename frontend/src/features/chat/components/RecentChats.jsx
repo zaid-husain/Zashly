@@ -13,7 +13,7 @@ export default function RecentChats() {
   const navigate = useNavigate();
 
   const { data: authUser } = useQuery({ queryKey: ["authUser"], queryFn: getAuthUser });
-  const { data: tokenData } = useQuery({ queryKey: ["streamToken"], queryFn: getStreamToken, enabled: !!authUser });
+  const { data: tokenData } = useQuery({ queryKey: ["streamToken"], queryFn: () => getStreamToken(), enabled: !!authUser });
   const { data: friends = [] } = useQuery({ queryKey: ["friends"], queryFn: getUserFriends });
 
   const auth = useMemo(() => (authUser && authUser.user ? authUser.user : authUser), [authUser]);

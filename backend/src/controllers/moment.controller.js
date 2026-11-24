@@ -20,8 +20,14 @@ const HOURS_24 = 24 * 60 * 60 * 1000;
 export async function getMoments(req, res) {
   try {
     const me = req.user.id;
-    const meDoc = await User.findById(me).select("friends");
-    const ids = [me, ...(meDoc?.friends || [])];
+    const meDoc = await User.findById(me).select("friends blockedUsers");
+    const blockedMe = await User.find({ blockedUsers: me }).select("_id");
+    const excludedIds = new Set([
+      ...(meDoc?.blockedUsers || []).map((id) => id.toString()),
+      ...blockedMe.map((u) => u._id.toString()),
+    ]);
+
+    const ids = [me, ...(meDoc?.friends || []).filter((id) => !excludedIds.has(id.toString()))];
 
     const moments = await Moment.find({
       user: { $in: ids },

@@ -4,7 +4,7 @@ import { MessageCircle, Heart, Share2, Send } from "lucide-react";
 
 export default function HeroSection() {
   return (
-    <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden flex flex-col items-center justify-center min-h-[90vh]">
+    <section className="relative pt-12 pb-12 lg:pt-20 lg:pb-20 overflow-hidden flex flex-col items-center justify-center min-h-[72vh] lg:min-h-[78vh]">
       {/* Background Gradient Mesh */}
       <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/20 via-base-100 to-base-100 dark:from-primary/10 dark:via-base-100 dark:to-base-100" />
       
@@ -20,7 +20,7 @@ export default function HeroSection() {
         className="absolute bottom-1/4 right-10 w-80 h-80 bg-secondary/10 blur-3xl rounded-full -z-10"
       />
 
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col lg:flex-row items-center gap-16">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 flex flex-col lg:flex-row items-center gap-10 lg:gap-12">
         
         {/* Left Copy */}
         <div className="flex-1 text-center lg:text-left max-w-2xl mx-auto lg:mx-0">

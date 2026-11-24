@@ -65,7 +65,7 @@ export default function LiveStats() {
   }, []);
 
   return (
-    <section className="py-24 bg-primary text-primary-content relative overflow-hidden">
+    <section className="py-14 sm:py-16 lg:py-20 bg-primary text-primary-content relative overflow-hidden">
       {/* Background Decor */}
       <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "32px 32px" }} />
       

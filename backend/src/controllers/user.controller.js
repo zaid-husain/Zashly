@@ -75,15 +75,20 @@ export async function updateProfile(req, res) {
 export async function getRecommendedUsers(req, res) {
   try {
     const currentUserId = req.user.id;
-    const currentUser = req.user;
+    const currentUser = await User.findById(currentUserId).select("friends blockedUsers");
+
+    const blockedMe = await User.find({ blockedUsers: currentUserId }).select("_id");
+    const excludedIds = [
+      currentUserId,
+      ...(currentUser?.friends || []),
+      ...(currentUser?.blockedUsers || []),
+      ...blockedMe.map((u) => u._id),
+    ];
 
     const queryFilter = {
-      $and: [
-        { _id: { $ne: currentUserId } },
-        { _id: { $nin: currentUser.friends } },
-        { isOnboarded: true },
-        { role: { $nin: ["admin", "owner"] } },
-      ],
+      _id: { $nin: excludedIds },
+      isOnboarded: true,
+      role: { $nin: ["admin", "owner"] },
     };
 
     const recommendedUsers = await User.find(queryFilter).limit(20);
@@ -96,14 +101,31 @@ export async function getRecommendedUsers(req, res) {
 
 export async function getMyFriends(req, res) {
   try {
-    const user = await User.findById(req.user.id)
-      .select("friends")
-      .populate("friends", "fullName profilePic nativeLanguage learningLanguage lastSeen privacySettings");
+    const myId = req.user.id;
+    const me = await User.findById(myId).select("friends blockedUsers");
+    if (!me) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-    const friendsWithStatus = user.friends.map((friend) => {
+    const blockedMe = await User.find({ blockedUsers: myId }).select("_id");
+    const blockedMeIds = new Set(blockedMe.map((u) => u._id.toString()));
+    const myBlockedIds = new Set((me.blockedUsers || []).map((id) => id.toString()));
+
+    const validFriendIds = (me.friends || []).filter((fid) => {
+      const idStr = fid.toString();
+      return !myBlockedIds.has(idStr) && !blockedMeIds.has(idStr);
+    });
+
+    const user = await User.findById(myId)
+      .populate({
+        path: "friends",
+        match: { _id: { $in: validFriendIds } },
+        select: "fullName username profilePic nativeLanguage learningLanguage lastSeen privacySettings",
+      });
+
+    const friendsWithStatus = (user.friends || []).map((friend) => {
       const friendId = String(friend._id);
       const isOnline = presenceManager.isOnline(friendId);
-      console.log(`[getMyFriends] Friend ${friend.fullName} (${friendId}): isOnline=${isOnline}`);
       return {
         ...friend.toObject(),
         isOnline,
@@ -135,6 +157,16 @@ export async function sendFriendRequest(req, res) {
       return res.status(404).json({ message: "Recipient not found" });
     }
 
+    const sender = await User.findById(myId).select("fullName profilePic blockedUsers");
+
+    const isBlocked =
+      (sender.blockedUsers || []).some((id) => id.toString() === recipientId) ||
+      (recipient.blockedUsers || []).some((id) => id.toString() === myId);
+
+    if (isBlocked) {
+      return res.status(403).json({ message: "Cannot send friend request to this user" });
+    }
+
     if (recipient.friends.includes(myId)) {
       return res.status(400).json({ message: "You are already friends with this user" });
     }
@@ -151,8 +183,6 @@ export async function sendFriendRequest(req, res) {
         .status(400)
         .json({ message: "A friend request already exists between you and this user" });
     }
-
-    const sender = await User.findById(myId);
 
     const friendRequest = await FriendRequest.create({
       sender: myId,
@@ -325,8 +355,16 @@ export async function searchUsers(req, res) {
 
     const regex = new RegExp(escapeRegex(query.trim()), "i");
 
+    const me = await User.findById(myId).select("blockedUsers");
+    const blockedMe = await User.find({ blockedUsers: myId }).select("_id");
+    const excludedFromSearch = [
+      myId,
+      ...(me?.blockedUsers || []),
+      ...blockedMe.map((u) => u._id),
+    ];
+
     const queryFilter = {
-      _id: { $ne: myId },
+      _id: { $nin: excludedFromSearch },
       isOnboarded: true,
       role: { $nin: ["admin", "owner"] },
       $or: [
@@ -336,7 +374,7 @@ export async function searchUsers(req, res) {
     };
 
     const users = await User.find(queryFilter)
-      .select("fullName profilePic bio location createdAt friends lastSeen")
+      .select("fullName username profilePic bio location createdAt friends lastSeen")
       .limit(20);
 
     const friendIds = new Set((req.user.friends || []).map((id) => id.toString()));
@@ -344,6 +382,7 @@ export async function searchUsers(req, res) {
     const results = users.map((u) => ({
       _id: u._id,
       fullName: u.fullName,
+      username: u.username,
       profilePic: u.profilePic,
       bio: u.bio || "",
       location: u.location || "",
@@ -363,8 +402,11 @@ export async function searchUsers(req, res) {
 
 export async function getBlockedUsers(req, res) {
   try {
-    const user = await User.findById(req.user.id).populate("blockedUsers", "fullName profilePic");
-    res.status(200).json(user.blockedUsers || []);
+    const user = await User.findById(req.user.id).populate(
+      "blockedUsers",
+      "fullName username profilePic bio lastSeen"
+    );
+    res.status(200).json(user?.blockedUsers || []);
   } catch (error) {
     logger.error("Error in getBlockedUsers controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
@@ -385,22 +427,51 @@ export async function blockUser(req, res) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Add to blocked users, remove from friends for both
+    // Check if they were friends prior to blocking
+    const me = await User.findById(myId).select("fullName friends");
+    const wereFriends = (me?.friends || []).some((f) => f.toString() === targetId.toString());
+
+    // Add to blocked users (preserve friendship relationship in friends array)
     await User.findByIdAndUpdate(myId, {
-      $addToSet: { blockedUsers: targetId },
-      $pull: { friends: targetId }
+      $addToSet: { blockedUsers: targetId }
     });
 
-    await User.findByIdAndUpdate(targetId, {
-      $pull: { friends: myId }
-    });
+    if (wereFriends) {
+      // Ensure the accepted FriendRequest record is preserved so unblocking restores it
+      await FriendRequest.findOneAndUpdate(
+        {
+          $or: [
+            { sender: myId, recipient: targetId },
+            { sender: targetId, recipient: myId },
+          ],
+        },
+        {
+          $setOnInsert: {
+            sender: myId,
+            recipient: targetId,
+            senderName: me.fullName || "User",
+            recipientName: targetUser.fullName || "User",
+          },
+          $set: { status: "accepted" },
+        },
+        { upsert: true }
+      );
+    } else {
+      // Clean up any pending friend requests between the two users
+      await FriendRequest.deleteMany({
+        $or: [
+          { sender: myId, recipient: targetId, status: "pending" },
+          { sender: targetId, recipient: myId, status: "pending" },
+        ],
+      });
+    }
 
-    // Block in Stream Chat
+    // Block in Stream Chat (takes user IDs as strings)
     if (streamClient) {
       try {
-        await streamClient.blockUser(targetId, { user_id: myId });
+        await streamClient.blockUser(targetId.toString(), myId.toString());
       } catch (err) {
-        logger.error("Stream block user error:", err);
+        logger.error("Stream block user error:", err?.message || err);
       }
     }
 
@@ -420,12 +491,30 @@ export async function unblockUser(req, res) {
       $pull: { blockedUsers: targetId }
     });
 
-    // Unblock in Stream Chat
+    // Check if they were previously friends (via accepted FriendRequest record)
+    const hadFriendship = await FriendRequest.findOne({
+      $or: [
+        { sender: myId, recipient: targetId, status: "accepted" },
+        { sender: targetId, recipient: myId, status: "accepted" },
+      ],
+    });
+
+    // If they were friends prior to blocking, automatically restore friendship on both users
+    if (hadFriendship) {
+      await User.findByIdAndUpdate(myId, {
+        $addToSet: { friends: targetId }
+      });
+      await User.findByIdAndUpdate(targetId, {
+        $addToSet: { friends: myId }
+      });
+    }
+
+    // Unblock in Stream Chat (note camelCase: unBlockUser with capital B)
     if (streamClient) {
       try {
-        await streamClient.unblockUser(targetId, { user_id: myId });
+        await streamClient.unBlockUser(targetId.toString(), myId.toString());
       } catch (err) {
-        logger.error("Stream unblock user error:", err);
+        logger.error("Stream unblock user error:", err?.message || err);
       }
     }
 

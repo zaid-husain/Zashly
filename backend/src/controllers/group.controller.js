@@ -2,7 +2,7 @@ import logger from "../monitoring/logger.js";
 import Group from "../models/Group.js";
 import User from "../models/User.js";
 import { getIO } from "../lib/socket.js";
-import { streamClient } from "../lib/stream.js";
+import { streamClient, ensureStreamUsers } from "../lib/stream.js";
 import {
   validateBase64Upload,
   secureFilename,
@@ -49,6 +49,7 @@ export async function createGroup(req, res) {
 
     if (streamClient) {
       try {
+        await ensureStreamUsers(allMemberIds);
         const channel = streamClient.channel("messaging", String(group._id), {
           name: group.name,
           created_by_id: String(adminId),

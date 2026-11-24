@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router";
 import useAuthUser from "../hooks/useAuthUser";
-import { useQuery } from "@tanstack/react-query";
-import { getStreamToken } from "../lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getStreamToken, unblockUser } from "../lib/api";
 import { connectStreamUser } from "../lib/streamClient";
 import ChatLoader from "../components/ChatLoader";
 import CustomMessageRenderer from "../components/CustomMessageRenderer";
@@ -25,7 +25,7 @@ import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
 import useSocket from "../hooks/useSocket";
 import ProfileAvatar from "../components/ProfileAvatar";
-import { Trash2Icon, Moon, Sun, MoreVertical } from "lucide-react";
+import { Trash2Icon, Moon, Sun, MoreVertical, ShieldBanIcon } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import CallButtons from "../features/calls/components/CallButtons";
 import "../chat-redesign.css";
@@ -47,6 +47,7 @@ const ChatPage = () => {
 
   const { authUser } = useAuthUser();
   const { socket } = useSocket();
+  const queryClient = useQueryClient();
 
   const toggleChatTheme = () => {
     const newTheme = chatTheme === "str-chat__theme-dark" ? "str-chat__theme-light" : "str-chat__theme-dark";
@@ -54,10 +55,40 @@ const ChatPage = () => {
     localStorage.setItem("stream-chat-theme", newTheme);
   };
 
-  const { data: tokenData } = useQuery({
-    queryKey: ["streamToken"],
-    queryFn: getStreamToken,
+  const {
+    data: tokenData,
+    isLoading: tokenLoading,
+    isError: tokenError,
+    error: tokenErrorObj,
+  } = useQuery({
+    queryKey: ["streamToken", targetUserId],
+    queryFn: () => getStreamToken(targetUserId),
     enabled: !!authUser,
+  });
+
+  const isBlockedByMe = useMemo(() => {
+    if (tokenData?.isBlockedByMe) return true;
+    const blockedList = authUser?.blockedUsers || [];
+    return blockedList.some(
+      (id) => String(id?._id || id) === String(targetUserId)
+    );
+  }, [tokenData?.isBlockedByMe, authUser?.blockedUsers, targetUserId]);
+
+  const isBlockedByTarget = Boolean(tokenData?.isBlockedByTarget);
+  const isBlocked = isBlockedByMe || isBlockedByTarget || Boolean(tokenData?.isBlocked);
+
+  const { mutate: unblockChatUser, isPending: isUnblocking } = useMutation({
+    mutationFn: () => unblockUser(targetUserId),
+    onSuccess: (data) => {
+      toast.success(data?.message || "User unblocked successfully");
+      queryClient.invalidateQueries({ queryKey: ["streamToken", targetUserId] });
+      queryClient.invalidateQueries({ queryKey: ["authUser"] });
+      queryClient.invalidateQueries({ queryKey: ["friends"] });
+      queryClient.invalidateQueries({ queryKey: ["blockedUsers"] });
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || "Failed to unblock user");
+    },
   });
 
   const receiveSoundRef = useRef(null);
@@ -76,7 +107,9 @@ const ChatPage = () => {
     const isOnline = displayUser.online;
     
     let statusText = isOnline ? "Online" : "Offline";
-    if (!isOnline && displayUser.last_active) {
+    if (isBlocked) {
+      statusText = isBlockedByMe ? "Blocked by you" : "Unavailable";
+    } else if (!isOnline && displayUser.last_active) {
       try {
         const lastActive = new Date(displayUser.last_active);
         statusText = `Last seen ${formatDistanceToNow(lastActive, { addSuffix: true })}`;
@@ -99,7 +132,7 @@ const ChatPage = () => {
               size="w-12 h-12" 
               textSize="text-lg" 
             />
-            {isOnline && (
+            {isOnline && !isBlocked && (
               <span className="absolute bottom-0 right-0 premium-online-dot border-2 border-white" />
             )}
           </div>
@@ -113,12 +146,22 @@ const ChatPage = () => {
           </div>
         </div>
 
-        <div className="premium-chat-header-actions relative">
-          <CallButtons
-            targetId={displayUser.id || targetUserId}
-            targetName={displayUser.name || displayUser.fullName}
-            targetPic={displayUser.image || displayUser.profilePic}
-          />
+        <div className="premium-chat-header-actions relative flex items-center gap-2">
+          {!isBlocked ? (
+            <CallButtons
+              targetId={displayUser.id || targetUserId}
+              targetName={displayUser.name || displayUser.fullName}
+              targetPic={displayUser.image || displayUser.profilePic}
+            />
+          ) : (
+            <span
+              className={`badge ${
+                isBlockedByMe ? "badge-error" : "badge-neutral"
+              } badge-sm`}
+            >
+              {isBlockedByMe ? "Blocked" : "Unavailable"}
+            </span>
+          )}
 
           <div className="dropdown dropdown-end">
             <button
@@ -131,6 +174,16 @@ const ChatPage = () => {
             </button>
             <ul tabIndex={0} className="dropdown-content z-[100] menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-200">
               <li><a onClick={() => setShowProfile(true)}>View Profile</a></li>
+              {isBlockedByMe && (
+                <li>
+                  <a
+                    onClick={() => unblockChatUser()}
+                    className="text-error font-medium"
+                  >
+                    Unblock User
+                  </a>
+                </li>
+              )}
               <li><a onClick={() => setShowClearModal(true)} className="text-error font-medium">Clear Chat</a></li>
             </ul>
           </div>
@@ -156,13 +209,32 @@ const ChatPage = () => {
   };
 
   useEffect(() => {
-    const initChat = async () => {
-      if (!tokenData?.token || !authUser) return;
+    let isCancelled = false;
 
+    const initChat = async () => {
+      if (!authUser) {
+        setLoading(false);
+        return;
+      }
+      if (tokenError) {
+        setLoading(false);
+        return;
+      }
+      if (!tokenData?.token) {
+        if (!tokenLoading) {
+          setLoading(false);
+        }
+        return;
+      }
+
+      setLoading(true);
       try {
         const desiredId = String(authUser._id);
         const client = await connectStreamUser(authUser, tokenData.token);
-        if (!client) return;
+        if (!client) {
+          if (!isCancelled) setLoading(false);
+          return;
+        }
 
         const channelId = [authUser._id, targetUserId].sort().join("-");
 
@@ -172,6 +244,8 @@ const ChatPage = () => {
 
         const shouldMarkRead = authUser?.privacySettings?.readReceipts !== false;
         await currChannel.watch({ mark_read: shouldMarkRead });
+
+        if (isCancelled) return;
 
         // Get target user info from channel members
         const members = Object.values(currChannel.state.members);
@@ -191,12 +265,18 @@ const ChatPage = () => {
         console.error("Error initializing chat:", error);
         toast.error("Could not connect to chat. Please try again.");
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
 
     initChat();
-  }, [tokenData, authUser, targetUserId]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [tokenData, tokenLoading, tokenError, authUser, targetUserId]);
 
   // Custom message component wrapper
   const MessageWithExtras = useCallback(
@@ -210,8 +290,40 @@ const ChatPage = () => {
     []
   );
 
+  if (loading && (tokenLoading || !tokenError)) return <ChatLoader />;
 
-  if (loading || !chatClient || !channel) return <ChatLoader />;
+  if (tokenError || !chatClient || !channel) {
+    const errorMsg =
+      tokenErrorObj?.response?.data?.message ||
+      tokenErrorObj?.message ||
+      (!STREAM_API_KEY
+        ? "Stream API key missing in environment configuration."
+        : "Unable to connect to chat. Please try again.");
+
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+        <p className="text-lg font-semibold mb-2">Chat Connection Error</p>
+        <p className="text-sm opacity-70 mb-4 max-w-sm">{errorMsg}</p>
+        <div className="flex gap-2">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setLoading(true);
+              queryClient.invalidateQueries({ queryKey: ["streamToken"] });
+            }}
+          >
+            Retry
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => navigate("/app")}
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const chatWallpaperStyle = authUser?.chatWallpaper
     ? { 
@@ -250,25 +362,59 @@ const ChatPage = () => {
                     Message={MessageWithExtras}
                     messageActions={['edit', 'delete', 'flag', 'mute', 'pin', 'quote', 'react']}
                   />
-                  <MessageInput
-                    focus
-                    additionalTextareaProps={{
-                      onKeyDown: (e) => {
-                        const enterToSend =
-                          authUser?.appSettings?.general?.enterToSend ?? true;
-                        if (!enterToSend && e.key === "Enter" && !e.shiftKey) {
-                          e.stopPropagation();
-                        }
-                      },
-                    }}
-                    Input={(props) => (
-                      <CustomMessageInput
-                        {...props}
-                        isGroupChat={false}
-                        onSendParticles={onSendParticles}
-                      />
-                    )}
-                  />
+                  {isBlocked ? (
+                    <div className="p-4 bg-base-200/90 backdrop-blur border-t border-base-300 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left z-10">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-full bg-error/15 text-error shrink-0">
+                          <ShieldBanIcon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {isBlockedByMe ? "You have blocked this user" : "This user is unavailable"}
+                          </p>
+                          <p className="text-xs text-base-content/60">
+                            {isBlockedByMe
+                              ? "You cannot send or receive messages or start calls with blocked users."
+                              : "You cannot send messages or start calls with this user."}
+                          </p>
+                        </div>
+                      </div>
+                      {isBlockedByMe && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline btn-error min-w-[100px]"
+                          disabled={isUnblocking}
+                          onClick={() => unblockChatUser()}
+                        >
+                          {isUnblocking ? (
+                            <span className="loading loading-spinner loading-xs" />
+                          ) : (
+                            "Unblock"
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <MessageInput
+                      focus
+                      additionalTextareaProps={{
+                        onKeyDown: (e) => {
+                          const enterToSend =
+                            authUser?.appSettings?.general?.enterToSend ?? true;
+                          if (!enterToSend && e.key === "Enter" && !e.shiftKey) {
+                            e.stopPropagation();
+                          }
+                        },
+                      }}
+                      Input={(props) => (
+                        <CustomMessageInput
+                          {...props}
+                          isGroupChat={false}
+                          onSendParticles={onSendParticles}
+                        />
+                      )}
+                    />
+                  )}
                 </Window>
                 <ForwardModal />
                 

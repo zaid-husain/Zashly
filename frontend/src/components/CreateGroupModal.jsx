@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getUserFriends } from "../lib/api";
 import { createGroup } from "../lib/groupApi";
@@ -11,6 +12,7 @@ import ProfileAvatar from "./ProfileAvatar";
  * Shows the user's friend list with checkboxes for member selection.
  */
 const CreateGroupModal = ({ isOpen, onClose }) => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [groupName, setGroupName] = useState("");
   const [groupDescription, setGroupDescription] = useState("");
@@ -50,10 +52,13 @@ const CreateGroupModal = ({ isOpen, onClose }) => {
         description: groupDescription.trim(),
         memberIds: Array.from(selectedMembers),
       }),
-    onSuccess: () => {
+    onSuccess: (newGroup) => {
       toast.success("Group created successfully!");
       queryClient.invalidateQueries({ queryKey: ["myGroups"] });
       resetAndClose();
+      if (newGroup?._id) {
+        navigate(`/group/${newGroup._id}`);
+      }
     },
     onError: (err) => {
       toast.error(err?.response?.data?.message || "Failed to create group");

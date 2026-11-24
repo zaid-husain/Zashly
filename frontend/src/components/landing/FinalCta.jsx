@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 export default function FinalCta() {
   return (
-    <section className="py-24 relative overflow-hidden bg-base-300">
+    <section className="py-14 sm:py-16 lg:py-20 relative overflow-hidden bg-base-300">
       {/* Dynamic Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-base-300 to-secondary/20" />
       <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-base-content/10 to-transparent" />
